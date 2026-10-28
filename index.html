@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Mavru Nahar Zombie Apocalyps: Samarqand Zombi o'lati 360°</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js 3D Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050508;
+            font-family: 'Rajdhani', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        /* Glassmorphism Styling */
+        .glass-panel {
+            background: rgba(12, 12, 22, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 50, 50, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
+        }
+
+        .red-glow {
+            text-shadow: 0 0 10px rgba(255, 30, 30, 0.8), 0 0 20px rgba(255, 30, 30, 0.5);
+        }
+
+        .green-glow {
+            text-shadow: 0 0 10px rgba(0, 255, 120, 0.8);
+        }
+
+        /* Crosshair in the center of the screen */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 28px;
+            height: 28px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 30;
+        }
+
+        /* Muzzle flash effect overlay */
+        #muzzle-flash {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle, rgba(255,200,50,0.25) 0%, rgba(255,50,0,0) 70%);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.05s ease-out;
+            z-index: 20;
+        }
+
+        /* Damage vignette overlay */
+        #damage-vignette {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle, transparent 50%, rgba(255, 0, 0, 0.6) 100%);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease-out;
+            z-index: 25;
+        }
+
+        /* Radar Minimap */
+        #radar-container {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: rgba(0, 20, 10, 0.85);
+            border: 2px solid rgba(0, 255, 120, 0.5);
+            box-shadow: 0 0 15px rgba(0, 255, 120, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        #radar-sweep {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, rgba(0, 255, 120, 0.4) 0deg, transparent 60deg);
+            animation: sweep 2.5s linear infinite;
+        }
+
+        @keyframes sweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- WebGL Canvas Container -->
+    <div id="game-container" class="w-full h-full relative"></div>
+
+    <!-- UI Overlay Controls & HUD -->
+    <div id="hud-overlay" class="fixed inset-0 pointer-events-none z-10 flex flex-col justify-between p-4 md:p-6 hidden">
+        
+        <!-- Top HUD Header -->
+        <div class="flex items-start justify-between w-full">
+            <!-- Health & Ammo Stats -->
+            <div class="glass-panel p-4 rounded-2xl space-y-3 min-w-[220px] pointer-events-auto">
+                <div class="flex items-center justify-between text-xs font-orbitron text-gray-300">
+                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-heart text-red-500"></i> JON (HP)</span>
+                    <span id="hp-text" class="font-bold text-red-400">100%</span>
+                </div>
+                <div class="w-full bg-black/60 h-3 rounded-full overflow-hidden border border-red-500/30 p-0.5">
+                    <div id="hp-bar" class="bg-gradient-to-r from-red-600 to-red-400 h-full rounded-full transition-all duration-300" style="width: 100%"></div>
+                </div>
+
+                <div class="flex items-center justify-between text-xs font-orbitron text-gray-300 pt-1 border-t border-white/10">
+                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-burst text-yellow-400"></i> PATRONLAR</span>
+                    <span id="ammo-text" class="font-bold text-yellow-400 text-sm">30 / ∞</span>
+                </div>
+            </div>
+
+            <!-- Wave & Kills Counter (Center Top) -->
+            <div class="glass-panel px-6 py-3 rounded-2xl text-center space-y-1">
+                <div id="wave-title" class="font-orbitron font-extrabold text-xl text-red-500 tracking-wider red-glow">
+                    TO'LQIN 1
+                </div>
+                <div class="text-xs text-gray-300 font-orbitron flex items-center justify-center gap-4">
+                    <span>O'ldirildi: <strong id="kills-count" class="text-white">0</strong></span>
+                    <span>Ochko: <strong id="score-count" class="text-yellow-400">0</strong></span>
+                </div>
+            </div>
+
+            <!-- 360° Radar / Minimap -->
+            <div class="hidden sm:block pointer-events-auto">
+                <div id="radar-container" class="flex items-center justify-center">
+                    <div id="radar-sweep"></div>
+                    <!-- Player Center Marker -->
+                    <div class="w-2 h-2 rounded-full bg-cyan-400 z-10 shadow-lg shadow-cyan-400"></div>
+                    <!-- Dynamic Radar Dots will be appended here JS -->
+                    <div id="radar-blips" class="absolute inset-0"></div>
+                </div>
+                <p class="text-[10px] font-orbitron text-center text-green-400 mt-1 uppercase tracking-widest">360° RADAR</p>
+            </div>
+        </div>
+
+        <!-- Crosshair Indicator -->
+        <div id="crosshair">
+            <div class="w-full h-full relative flex items-center justify-center">
+                <div class="w-1.5 h-1.5 bg-red-500 rounded-full shadow-lg shadow-red-500"></div>
+                <div class="absolute w-6 h-0.5 bg-red-500/60 left-0"></div>
+                <div class="absolute w-6 h-0.5 bg-red-500/60 right-0"></div>
+                <div class="absolute h-6 w-0.5 bg-red-500/60 top-0"></div>
+                <div class="absolute h-6 w-0.5 bg-red-500/60 bottom-0"></div>
+            </div>
+        </div>
+
+        <!-- Muzzle Flash & Damage Vignette FX -->
+        <div id="muzzle-flash"></div>
+        <div id="damage-vignette"></div>
+
+        <!-- Bottom Controls & Weapon Switcher -->
+        <div class="flex items-end justify-between w-full pointer-events-auto">
+            <!-- Weapon Switcher -->
+            <div class="flex gap-2 glass-panel p-2 rounded-2xl">
+                <button onclick="switchWeapon('pistol')" id="wpn-pistol" class="px-3 py-2 rounded-xl bg-red-600/40 border border-red-500 text-xs font-orbitron font-bold text-white flex items-center gap-2 transition-all">
+                    <i class="fa-solid fa-gun"></i>
+                    <span class="hidden md:inline">PISTOLET</span>
+                </button>
+                <button onclick="switchWeapon('rifle')" id="wpn-rifle" class="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-orbitron font-bold text-gray-400 hover:text-white flex items-center gap-2 transition-all">
+                    <i class="fa-solid fa-person-rifle"></i>
+                    <span class="hidden md:inline">AVTOMAT</span>
+                </button>
+                <button onclick="switchWeapon('shotgun')" id="wpn-shotgun" class="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-orbitron font-bold text-gray-400 hover:text-white flex items-center gap-2 transition-all">
+                    <i class="fa-solid fa-skull"></i>
+                    <span class="hidden md:inline">DROBOVIK</span>
+                </button>
+            </div>
+
+            <!-- Shoot Button for Mobile / Touch Users -->
+            <div class="flex gap-3">
+                <button id="reload-btn" onclick="reloadWeapon()" class="w-14 h-14 rounded-2xl glass-panel border border-yellow-500/40 text-yellow-400 font-bold text-lg active:scale-90 transition-all flex items-center justify-center">
+                    <i class="fa-solid fa-rotate-right"></i>
+                </button>
+                <button id="fire-btn" class="w-20 h-20 rounded-2xl bg-gradient-to-tr from-red-700 to-red-500 text-white shadow-lg shadow-red-600/40 active:scale-95 transition-all flex items-center justify-center font-orbitron font-black text-xl border border-red-400">
+                    OTISH
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- START GAME MENU SCREEN -->
+    <div id="start-screen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+        <div class="glass-panel p-8 md:p-12 rounded-3xl max-w-xl w-full text-center space-y-6 border border-red-600/40 relative overflow-hidden">
+            <div class="absolute -top-20 -right-20 w-60 h-60 bg-red-600/20 rounded-full blur-3xl pointer-events-none"></div>
+
+            <div class="space-y-2">
+                <span class="inline-block px-3 py-1 rounded-full bg-red-600/20 border border-red-500/40 text-red-400 text-xs font-orbitron tracking-widest font-bold uppercase">
+                    360° VR APOCALYPSE ENGINE
+                </span>
+                <h1 class="text-3xl md:text-5xl font-orbitron font-black text-white tracking-wider red-glow leading-tight">
+                    MAVRU NAHAR <br> ZOMBIE APOCALYPS
+                </h1>
+                <p class="text-sm font-orbitron text-red-400 tracking-wide">SAMARQAND: ZOMBI O'LATI</p>
+            </div>
+
+            <p class="text-xs md:text-sm text-gray-300 leading-relaxed font-light">
+                Samarqandning qadimiy me'moriy obidalari va qal'alari atrofini zombi vabo bosdi! Siz markaziy qal'ada 360 daraja atrofni kuzatib, barcha tomondan bostirib kelayotgan zombilarni yo'q qilishingiz kerak.
+            </p>
+
+            <!-- Instructions -->
+            <div class="bg-black/50 p-4 rounded-2xl text-left border border-white/10 space-y-2 text-xs text-gray-300 font-orbitron">
+                <div class="flex items-center gap-2"><i class="fa-solid fa-arrows-spin text-red-500"></i> <span><strong>360° Burilish:</strong> Sichqoncha yoki ekranni surish (Touch & Drag)</span></div>
+                <div class="flex items-center gap-2"><i class="fa-solid fa-crosshairs text-yellow-400"></i> <span><strong>Otish:</strong> Chap tugma / Bosh joy (Space) / "OTISH" tugmasi</span></div>
+                <div class="flex items-center gap-2"><i class="fa-solid fa-keyboard text-cyan-400"></i> <span><strong>Qurollar:</strong> 1, 2, 3 tugmalari, R - Qayta qurollanish</span></div>
+            </div>
+
+            <!-- Start Button -->
+            <button onclick="startGame()" class="w-full py-4 rounded-2xl bg-gradient-to-r from-red-700 via-red-600 to-red-800 text-white font-orbitron font-black text-lg hover:opacity-90 shadow-xl shadow-red-600/30 transition-all border border-red-400 active:scale-95">
+                O'YINNI BOSHLASH <i class="fa-solid fa-play ml-2"></i>
+            </button>
+
+            <div class="text-[11px] text-gray-400 font-orbitron flex justify-between pt-2 border-t border-white/10">
+                <span>REKORD: <strong id="start-highscore" class="text-yellow-400">0</strong></span>
+                <span>Dasturchi: Bilolbek</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME OVER SCREEN -->
+    <div id="gameover-screen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 hidden">
+        <div class="glass-panel p-8 md:p-10 rounded-3xl max-w-md w-full text-center space-y-6 border border-red-600/60">
+            <div class="w-16 h-16 rounded-full bg-red-600/20 border border-red-500 flex items-center justify-center mx-auto text-3xl text-red-500 red-glow">
+                <i class="fa-solid fa-skull"></i>
+            </div>
+
+            <div>
+                <h2 class="text-3xl font-orbitron font-black text-red-500 red-glow">MAG'LUBIYAT!</h2>
+                <p class="text-xs text-gray-400 font-orbitron mt-1">Zombilar bazani egalladi</p>
+            </div>
+
+            <div class="bg-black/60 p-4 rounded-2xl border border-white/10 space-y-2 text-sm font-orbitron">
+                <div class="flex justify-between text-gray-300">
+                    <span>O'ldirilgan Zombilar:</span>
+                    <strong id="final-kills" class="text-white">0</strong>
+                </div>
+                <div class="flex justify-between text-gray-300">
+                    <span>Erisheadigan To'lqin:</span>
+                    <strong id="final-wave" class="text-red-400">1</strong>
+                </div>
+                <div class="flex justify-between text-gray-300 border-t border-white/10 pt-2">
+                    <span>Jami Ochko:</span>
+                    <strong id="final-score" class="text-yellow-400 text-base">0</strong>
+                </div>
+            </div>
+
+            <button onclick="restartGame()" class="w-full py-4 rounded-2xl bg-gradient-to-r from-red-600 to-red-800 text-white font-orbitron font-bold text-sm hover:opacity-90 shadow-lg shadow-red-600/30 transition-all border border-red-400">
+                QAYTA BOSHLASH <i class="fa-solid fa-rotate-right ml-2"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT GAME ENGINE -->
+    <script>
+        /* --- GAME ENGINE STATE & VARIABLES --- */
+        let scene, camera, renderer;
+        let zombies = [];
+        let bullets = [];
+        let environmentProps = [];
+        
+        let isGameRunning = false;
+        let health = 100;
+        let score = 0;
+        let kills = 0;
+        let wave = 1;
+        let zombiesToSpawn = 8;
+        let spawnedInWave = 0;
+
+        // Player Orbit / 360 Camera Controls
+        let lon = 0, lat = 0;
+        let phi = 0, theta = 0;
+        let isUserInteracting = false;
+        let onPointerDownPointerX = 0, onPointerDownPointerY = 0;
+        let onPointerDownLon = 0, onPointerDownLat = 0;
+
+        // Weapons Config
+        const weapons = {
+            pistol: { name: "Pistolet", ammo: 12, maxAmmo: 12, damage: 35, fireRate: 350, spread: 0.02 },
+            rifle: { name: "Avtomat", ammo: 30, maxAmmo: 30, damage: 25, fireRate: 140, spread: 0.04 },
+            shotgun: { name: "Drobovik", ammo: 6, maxAmmo: 6, damage: 70, fireRate: 800, spread: 0.1 }
+        };
+        let currentWeaponKey = 'pistol';
+        let isReloading = false;
+        let lastShotTime = 0;
+
+        // Web Audio Synthesizer
+        let audioCtx = null;
+
+        // Highscore Storage
+        let highScore = localStorage.getItem('samarqand_zombie_highscore') || 0;
+        document.getElementById('start-highscore').innerText = highScore;
+
+
+        /* --- INITIALIZATION & THREE.JS SETUP --- */
+        function initThreeJS() {
+            const container = document.getElementById('game-container');
+
+            // Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x06060c);
+            scene.fog = new THREE.FogExp2(0x0a0a14, 0.025); // Dark Apocalyptic Fog
+
+            // Camera Setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.7, 0); // Player Height
+
+            // Renderer Setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x222238, 1.2);
+            scene.add(ambientLight);
+
+            // Apocalyptic Red/Purple Directional Light
+            const dirLight = new THREE.DirectionalLight(0xff3344, 1.5);
+            dirLight.position.set(20, 40, -20);
+            scene.add(dirLight);
+
+            // Center Player Bunker Point Light
+            const bunkerLight = new THREE.PointLight(0x00f0ff, 2, 15);
+            bunkerLight.position.set(0, 2.5, 0);
+            scene.add(bunkerLight);
+
+            // Build Environment
+            buildApocalypticSamarkand();
+
+            // Event Listeners for 360 Orbit Controls
+            setup360Controls();
+
+            // Window Resize
+            window.addEventListener('resize', onWindowResize);
+        }
+
+
+        /* --- ENVIRONMENT BUILDER (SAMARKAND ARCHES & RUINS) --- */
+        function buildApocalypticSamarkand() {
+            // Ground Mesh
+            const groundGeo = new THREE.PlaneGeometry(150, 150);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.9, metalness: 0.1 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            scene.add(ground);
+
+            // Center Player Base / Barricade Circular Platform
+            const baseGeo = new THREE.CylinderGeometry(3.5, 4, 0.6, 16);
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x222230, metalness: 0.5 });
+            const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+            baseMesh.position.y = 0.3;
+            scene.add(baseMesh);
+
+            // Historic Samarkand Archway Motif (North Entrance)
+            createSamarkandArch(0, 0, -30, 0);
+            createSamarkandArch(0, 0, 30, Math.PI);
+            createSamarkandArch(-30, 0, 0, Math.PI / 2);
+            createSamarkandArch(30, 0, 0, -Math.PI / 2);
+
+            // Barricades, Burning Drums & Ruins
+            for (let i = 0; i < 20; i++) {
+                const angle = (i / 20) * Math.PI * 2;
+                const dist = 12 + Math.random() * 15;
+                const x = Math.cos(angle) * dist;
+                const z = Math.sin(angle) * dist;
+
+                // Box Barricades
+                const boxGeo = new THREE.BoxGeometry(1.5, 1.2, 1.5);
+                const boxMat = new THREE.MeshStandardMaterial({ color: 0x332222 });
+                const box = new THREE.Mesh(boxGeo, boxMat);
+                box.position.set(x, 0.6, z);
+                box.rotation.y = Math.random() * Math.PI;
+                scene.add(box);
+            }
+        }
+
+        // Historic Arch Builder
+        function createSamarkandArch(x, y, z, rotationY) {
+            const group = new THREE.Group();
+
+            const pillarGeo = new THREE.BoxGeometry(2, 10, 2);
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x4a3b32, roughness: 0.8 }); // Mosaic Stone Color
+
+            const leftPillar = new THREE.Mesh(pillarGeo, wallMat);
+            leftPillar.position.set(-4, 5, 0);
+
+            const rightPillar = new THREE.Mesh(pillarGeo, wallMat);
+            rightPillar.position.set(4, 5, 0);
+
+            const archTopGeo = new THREE.BoxGeometry(10, 2.5, 2);
+            const archTop = new THREE.Mesh(archTopGeo, wallMat);
+            archTop.position.set(0, 10, 0);
+
+            group.add(leftPillar);
+            group.add(rightPillar);
+            group.add(archTop);
+
+            group.position.set(x, y, z);
+            group.rotation.y = rotationY;
+            scene.add(group);
+        }
+
+
+        /* --- 360 CAMERA ROTATION CONTROLS --- */
+        function setup360Controls() {
+            const container = document.getElementById('game-container');
+
+            // Mouse / Touch Drag Handlers
+            container.addEventListener('pointerdown', (e) => {
+                isUserInteracting = true;
+                onPointerDownPointerX = e.clientX;
+                onPointerDownPointerY = e.clientY;
+                onPointerDownLon = lon;
+                onPointerDownLat = lat;
+            });
+
+            document.addEventListener('pointermove', (e) => {
+                if (isUserInteracting) {
+                    lon = (onPointerDownPointerX - e.clientX) * 0.25 + onPointerDownLon;
+                    lat = (e.clientY - onPointerDownPointerY) * 0.25 + onPointerDownLat;
+                }
+            });
+
+            document.addEventListener('pointerup', () => {
+                isUserInteracting = false;
+            });
+
+            // Keyboard Controls
+            document.addEventListener('keydown', (e) => {
+                if (!isGameRunning) return;
+                if (e.code === 'Digit1') switchWeapon('pistol');
+                if (e.code === 'Digit2') switchWeapon('rifle');
+                if (e.code === 'Digit3') switchWeapon('shotgun');
+                if (e.code === 'KeyR') reloadWeapon();
+                if (e.code === 'Space') shootWeapon();
+            });
+
+            // Fire Button Mobile
+            const fireBtn = document.getElementById('fire-btn');
+            fireBtn.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                shootWeapon();
+            });
+        }
+
+        function updateCamera360() {
+            lat = Math.max(-85, Math.min(85, lat));
+            phi = THREE.MathUtils.degToRad(90 - lat);
+            theta = THREE.MathUtils.degToRad(lon);
+
+            const target = new THREE.Vector3();
+            target.x = camera.position.x + 500 * Math.sin(phi) * Math.cos(theta);
+            target.y = camera.position.y + 500 * Math.cos(phi);
+            target.z = camera.position.z + 500 * Math.sin(phi) * Math.sin(theta);
+
+            camera.lookAt(target);
+        }
+
+
+        /* --- ZOMBIE AI & SPAWNER --- */
+        function spawnZombie() {
+            // Spawn in 360 degree radius around player
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 30 + Math.random() * 15;
+            const x = Math.cos(angle) * distance;
+            const z = Math.sin(angle) * distance;
+
+            // Zombie Mesh Group
+            const group = new THREE.Group();
+
+            // Body
+            const bodyGeo = new THREE.CylinderGeometry(0.4, 0.3, 1.6, 8);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1f3824, roughness: 0.9 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 0.8;
+            group.add(body);
+
+            // Glowing Red Eyes Head
+            const headGeo = new THREE.SphereGeometry(0.28, 8, 8);
+            const headMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1f });
+            const head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = 1.8;
+            group.add(head);
+
+            // Glowing Eye Points
+            const eyeGeo = new THREE.SphereGeometry(0.05, 4, 4);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye1.position.set(0.1, 1.85, 0.22);
+            const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye2.position.set(-0.1, 1.85, 0.22);
+            group.add(eye1);
+            group.add(eye2);
+
+            group.position.set(x, 0, z);
+
+            // Zombie Object Metadata
+            const speed = 0.03 + Math.random() * 0.02 + (wave * 0.005);
+            const zombieObj = {
+                mesh: group,
+                hp: 50 + (wave * 10),
+                speed: speed,
+                angle: angle
+            };
+
+            scene.add(group);
+            zombies.push(zombieObj);
+            playZombieGroanSound();
+        }
+
+        function updateZombies() {
+            const blipsContainer = document.getElementById('radar-blips');
+            blipsContainer.innerHTML = '';
+
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                const z = zombies[i];
+
+                if (z.isDead) {
+                    scene.remove(z.mesh);
+                    zombies.splice(i, 1);
+                    continue;
+                }
+                
+                // Move zombie towards center player (0,0,0)
+                z.mesh.lookAt(camera.position.x, z.mesh.position.y, camera.position.z);
+                z.mesh.translateZ(z.speed);
+
+                // Check distance to player
+                const dist = z.mesh.position.distanceTo(camera.position);
+
+                // Update Radar Minimap Blip
+                const dx = z.mesh.position.x;
+                const dz = z.mesh.position.z;
+                const radarX = 60 + (dx / 40) * 50;
+                const radarY = 60 + (dz / 40) * 50;
+
+                if (radarX >= 5 && radarX <= 115 && radarY >= 5 && radarY <= 115) {
+                    const blip = document.createElement('div');
+                    blip.className = 'absolute w-1.5 h-1.5 bg-red-500 rounded-full animate-ping';
+                    blip.style.left = `${radarX}px`;
+                    blip.style.top = `${radarY}px`;
+                    blipsContainer.appendChild(blip);
+                }
+
+                // Attack Player
+                if (dist < 2.0) {
+                    damagePlayer(12);
+                    z.isDead = true;
+                    scene.remove(z.mesh);
+                    zombies.splice(i, 1);
+                }
+            }
+        }
+
+
+        /* --- WEAPONS & SHOOTING MECHANICS --- */
+        function switchWeapon(key) {
+            currentWeaponKey = key;
+            const wpn = weapons[key];
+
+            document.getElementById('wpn-pistol').className = key === 'pistol' ? 'px-3 py-2 rounded-xl bg-red-600/40 border border-red-500 text-xs font-orbitron font-bold text-white flex items-center gap-2 transition-all' : 'px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-orbitron font-bold text-gray-400 flex items-center gap-2 transition-all';
+            document.getElementById('wpn-rifle').className = key === 'rifle' ? 'px-3 py-2 rounded-xl bg-red-600/40 border border-red-500 text-xs font-orbitron font-bold text-white flex items-center gap-2 transition-all' : 'px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-orbitron font-bold text-gray-400 flex items-center gap-2 transition-all';
+            document.getElementById('wpn-shotgun').className = key === 'shotgun' ? 'px-3 py-2 rounded-xl bg-red-600/40 border border-red-500 text-xs font-orbitron font-bold text-white flex items-center gap-2 transition-all' : 'px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-orbitron font-bold text-gray-400 flex items-center gap-2 transition-all';
+
+            updateAmmoUI();
+        }
+
+        function reloadWeapon() {
+            if (isReloading) return;
+            isReloading = true;
+            document.getElementById('ammo-text').innerText = "QAYTA QUROLLANMOQDA...";
+            playReloadSound();
+
+            setTimeout(() => {
+                weapons[currentWeaponKey].ammo = weapons[currentWeaponKey].maxAmmo;
+                isReloading = false;
+                updateAmmoUI();
+            }, 1200);
+        }
+
+        function updateAmmoUI() {
+            const wpn = weapons[currentWeaponKey];
+            document.getElementById('ammo-text').innerText = `${wpn.ammo} / ∞`;
+        }
+
+        function shootWeapon() {
+            if (!isGameRunning || isReloading) return;
+            const now = Date.now();
+            const wpn = weapons[currentWeaponKey];
+
+            if (now - lastShotTime < wpn.fireRate) return;
+            if (wpn.ammo <= 0) {
+                reloadWeapon();
+                return;
+            }
+
+            wpn.ammo--;
+            lastShotTime = now;
+            updateAmmoUI();
+
+            // FX Muzzle Flash
+            const flash = document.getElementById('muzzle-flash');
+            flash.style.opacity = '1';
+            setTimeout(() => flash.style.opacity = '0', 50);
+
+            // Play Gunshot Procedural Audio
+            playShootSound(currentWeaponKey);
+
+            // Raycasting to Detect Zombie Hits 360
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+            const zombieMeshes = zombies.map(z => z.mesh);
+            const intersects = raycaster.intersectObjects(zombieMeshes, true);
+
+            if (intersects.length > 0) {
+                const hitMesh = intersects[0].object;
+                // Find parent zombie group with safe null checks
+                let parentGroup = hitMesh;
+                while (parentGroup && parentGroup.parent && parentGroup.parent.type === 'Group' && parentGroup.parent !== scene) {
+                    parentGroup = parentGroup.parent;
+                }
+
+                // Find Zombie in array
+                const zIndex = zombies.findIndex(z => z.mesh === parentGroup || z.mesh === hitMesh);
+                if (zIndex !== -1) {
+                    const z = zombies[zIndex];
+                    z.hp -= wpn.damage;
+
+                    playHitImpactSound();
+
+                    if (z.hp <= 0 && !z.isDead) {
+                        z.isDead = true;
+                        scene.remove(z.mesh);
+                        zombies.splice(zIndex, 1);
+                        kills++;
+                        score += 150;
+                        document.getElementById('kills-count').innerText = kills;
+                        document.getElementById('score-count').innerText = score;
+
+                        // Check Wave Clear
+                        if (zombies.length === 0 && spawnedInWave >= zombiesToSpawn) {
+                            nextWave();
+                        }
+                    }
+                }
+            }
+        }
+
+
+        /* --- WEB AUDIO API PROCEDURAL SOUND GENERATOR --- */
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playShootSound(type) {
+            initAudio();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = type === 'shotgun' ? 'sawtooth' : 'square';
+            osc.frequency.setValueAtTime(type === 'pistol' ? 400 : 250, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.15);
+
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        function playZombieGroanSound() {
+            if (!audioCtx || Math.random() > 0.4) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(80 + Math.random() * 40, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 0.6);
+
+            gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.6);
+        }
+
+        function playHitImpactSound() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.08);
+        }
+
+        function playReloadSound() {
+            initAudio();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime + 0.1);
+
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+        }
+
+
+        /* --- GAME LOGIC & WAVE CONTROLLER --- */
+        function damagePlayer(amount) {
+            health -= amount;
+            if (health < 0) health = 0;
+
+            document.getElementById('hp-bar').style.width = `${health}%`;
+            document.getElementById('hp-text').innerText = `${health}%`;
+
+            // Red Damage Vignette
+            const vig = document.getElementById('damage-vignette');
+            vig.style.opacity = '1';
+            setTimeout(() => vig.style.opacity = '0', 300);
+
+            if (health <= 0) {
+                gameOver();
+            }
+        }
+
+        function nextWave() {
+            wave++;
+            zombiesToSpawn = 8 + (wave * 4);
+            spawnedInWave = 0;
+            document.getElementById('wave-title').innerText = `TO'LQIN ${wave}`;
+        }
+
+        function startGame() {
+            initAudio();
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('hud-overlay').classList.remove('hidden');
+
+            if (!scene) initThreeJS();
+
+            isGameRunning = true;
+            health = 100;
+            score = 0;
+            kills = 0;
+            wave = 1;
+            spawnedInWave = 0;
+            zombiesToSpawn = 8;
+
+            // Clear old zombies
+            zombies.forEach(z => scene.remove(z.mesh));
+            zombies = [];
+
+            // Spawn loop
+            setInterval(() => {
+                if (isGameRunning && spawnedInWave < zombiesToSpawn) {
+                    spawnZombie();
+                    spawnedInWave++;
+                }
+            }, 2000);
+
+            animate();
+        }
+
+        function gameOver() {
+            isGameRunning = false;
+            document.getElementById('hud-overlay').classList.add('hidden');
+            document.getElementById('gameover-screen').classList.remove('hidden');
+
+            document.getElementById('final-kills').innerText = kills;
+            document.getElementById('final-wave').innerText = wave;
+            document.getElementById('final-score').innerText = score;
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('samarqand_zombie_highscore', highScore);
+            }
+        }
+
+        function restartGame() {
+            document.getElementById('gameover-screen').classList.add('hidden');
+            startGame();
+        }
+
+        function onWindowResize() {
+            if (!camera || !renderer) return;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+
+        /* --- MAIN ANIMATION LOOP --- */
+        function animate() {
+            if (!isGameRunning) return;
+            requestAnimationFrame(animate);
+
+            // Update 360 Camera Position
+            updateCamera360();
+
+            // Update Zombie Movement
+            updateZombies();
+
+            // Render Scene
+            renderer.render(scene);
+        }
+
+        // Initialize Three.js Scene on Window Load
+        window.onload = function() {
+            initThreeJS();
+            renderer.render(scene, camera);
+        };
+    </script>
+</body>
+</html>
